@@ -52,7 +52,7 @@ Email notifications deliver the alert summary, original evidence, and decision g
 
 The diagram below illustrates the detection pipeline, local AI integration, email notification, and analyst-driven incident escalation.
 
-![AI-Driven SOC Automation Architecture](screenshots/333.png)
+![AI-Driven SOC Automation Architecture](screenshots/3333.png)
 
 ---
 
