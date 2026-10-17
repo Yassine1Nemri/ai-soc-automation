@@ -22,178 +22,212 @@ A practical SOC automation project integrating Wazuh, local AI, Shuffle SOAR, an
 
 ## 📌 Overview
 
-This project demonstrates the integration of security monitoring, local AI-assisted analysis, workflow orchestration, and incident management in a practical SOC environment.
+This project demonstrates the integration of security monitoring, local AI-assisted analysis, security orchestration, and incident management in a practical SOC environment.
 
-The objective is to reduce repetitive analyst tasks while maintaining visibility and human oversight throughout the incident-handling process.
+The objective is to automate repetitive security operations while keeping the analyst involved in triage and incident handling.
 
-The current implementation includes SSH brute-force detection, AI-generated alert summaries, automated alert creation in DFIR-IRIS, email notifications, and status-based case escalation.
+The implementation covers SSH brute-force detection, AI-generated alert summaries, automated alert creation in DFIR-IRIS, email notifications, and analyst-driven incident escalation.
 
 ## 🏗️ Architecture
 
-The project is built around four main components:
-
 | Component | Role |
 |---|---|
-| **Wazuh** | Detects suspicious activity and generates security alerts |
+| **Wazuh** | Detects suspicious SSH authentication activity using custom rules |
 | **Ollama + Qwen3:4B** | Analyzes alert evidence locally and generates concise summaries |
-| **Shuffle SOAR** | Connects the components and automates workflows |
+| **Shuffle SOAR** | Orchestrates security workflows and integrates the components |
 | **DFIR-IRIS** | Manages security alerts and incident cases |
+| **Email notifications** | Delivers alert information and decision guidance to the analyst |
 
-Ollama runs locally, allowing AI-assisted analysis without sending alert data to a cloud-based AI API.
+The AI model runs locally through Ollama. The workflows communicate with the other components through HTTP requests and webhooks.
 
 ---
 
-# 🔍 Workflow 1 — Detection, AI Analysis & Alert Creation
+# 🔍 1. Security Monitoring & Detection
 
-This workflow automates the initial handling of SSH brute-force alerts, from detection to analyst notification.
+Three custom Wazuh rules cover different SSH authentication scenarios.
 
-### ⚙️ Workflow
+| Rule ID | Detection | Severity Level |
+|---|---|---|
+| `100100` | Five failed SSH password attempts from the same IP within 60 seconds | 10 |
+| `100101` | Five SSH attempts using nonexistent usernames from the same IP within 60 seconds | 10 |
+| `100102` | Successful SSH authentication following repeated failed attempts | 12 |
+
+Rule `100102` is particularly important because a successful login following repeated failures may indicate account compromise. It is a suspicious activity indicator, not proof of compromise.
+
+The rules also include MITRE ATT&CK mappings to help contextualize the detected activity.
+
+### Wazuh — Detection Dashboard
+
+The dashboard shows events associated with the three custom SSH rules, including the distribution of events by severity, MITRE ATT&CK technique, and agent.
+
+![Wazuh dashboard showing SSH detection rules](screenshots/Screenshot%20From%202026-10-17%2020-44-43.png)
+
+### DFIR-IRIS — Correlated SSH Alerts
+
+The investigation includes correlated alerts for an SSH brute-force attempt and a successful login following repeated authentication failures.
+
+![Correlated SSH alerts in DFIR-IRIS](screenshots/Screenshot%20From%202026-10-17%2020-31-40.png)
+
+---
+
+# ⚙️ 2. Automated SOC Workflow
+
+The first Shuffle workflow automates the handling of incoming Wazuh alerts, from AI-assisted analysis to incident alert creation and email notification.
+
+### Workflow Architecture
 
 ```text
-SSH Authentication Failures
-             |
-             v
-      Wazuh Detection
-        Rule 100100
-             |
-             v
+       Wazuh Detection
+              |
+              v
        Shuffle Webhook
-             |
-             v
-    Ollama + Qwen3:4B
-      AI Alert Analysis
-             |
-             v
+              |
+              v
+      Ollama + Qwen3:4B
+       AI Alert Analysis
+              |
+              v
        Parse AI Output
-             |
-             v
-    Create DFIR-IRIS Alert
-             |
-             v
+              |
+              v
+     Create DFIR-IRIS Alert
+              |
+              v
       Email Notification
 ```
 
-### 🔄 Processing Steps
+### Processing Steps
 
-1. **Detection:** Wazuh identifies repeated SSH authentication failures from the same source IP within 60 seconds.
-2. **AI analysis:** Shuffle sends relevant alert evidence to the locally running Qwen3:4B model through Ollama.
-3. **Response parsing:** The workflow parses the generated summary for subsequent processing.
+1. **Detection:** Wazuh identifies suspicious SSH authentication activity.
+2. **AI analysis:** Shuffle sends relevant alert evidence to the local Qwen3:4B model through Ollama.
+3. **Response parsing:** The workflow extracts the generated summary for use in subsequent steps.
 4. **Alert creation:** Shuffle submits the processed information to DFIR-IRIS.
-5. **Notification:** An email notification is sent to the analyst.
+5. **Notification:** An email containing the security alert and supporting information is sent to the analyst.
 
-### 📸 Implementation Evidence
+### Shuffle — Complete Workflow
 
-**Wazuh — SSH Brute-Force Detection**
+The screenshot shows the connected workflow used to process incoming alerts.
 
-<!-- Add your Wazuh detection screenshot here -->
+![Complete BruteForce-SSH workflow in Shuffle](screenshots/Screenshot%20From%202026-10-17%2020-29-35.png)
 
-![Wazuh Detection](screenshots/wazuh-detection.png)
+### Shuffle — Execution Results
 
-**Shuffle — Automated Detection Workflow**
+The execution results demonstrate successful processing, including the AI request and HTTP response from the DFIR-IRIS alert creation endpoint.
 
-<!-- Add your Shuffle workflow diagram here -->
-
-![Brute-Force Workflow](screenshots/bruteforce-workflow.png)
-
-**Shuffle — Workflow Execution**
-
-<!-- Add your execution results showing the successful HTTP requests here -->
-
-![Brute-Force Execution](screenshots/bruteforce-execution.png)
-
-**DFIR-IRIS — Generated Alert**
-
-<!-- Add your IRIS alert screenshot here -->
-
-![DFIR-IRIS Alert](screenshots/iris-alert.png)
+![Shuffle workflow execution results](screenshots/Screenshot%20From%202026-10-17%2020-29-01.png)
 
 ---
 
-# 🚨 Workflow 2 — Alert Triage & Case Escalation
+# 📧 3. Automated Email Notification
 
-The second workflow connects analyst decisions in DFIR-IRIS to automated incident-management actions in Shuffle.
+After processing an alert, the workflow sends an email notification to the SOC analyst.
 
-A webhook receives alert status updates and directs execution according to the new status.
+The notification includes the alert classification, relevant Wazuh detection information, original evidence, and guidance to support the analyst's decision.
 
-### ⚙️ Workflow
+The following two screenshots are complementary parts of the same email.
+
+### Email Notification — Alert Summary
+
+The first screenshot shows the notification, including the alert title, severity classification, associated Wazuh rule, and MITRE ATT&CK technique.
+
+![SOC email notification and alert classification](screenshots/Screenshot%20From%202026-10-17%2020-45-29.png)
+
+### Email Notification — Evidence & Analyst Decision Guide
+
+The second screenshot continues the same email, showing the original SSH authentication evidence and the decision guidance for handling the alert in DFIR-IRIS.
+
+![SOC email containing original evidence and analyst decision guidance](screenshots/Screenshot%20From%202026-10-17%2020-45-55.png)
+
+Together, these screenshots demonstrate how the workflow provides both technical evidence and decision support rather than simply forwarding a raw security event.
+
+---
+
+# 🚨 4. Human-in-the-Loop Incident Management
+
+The second Shuffle workflow connects alert status updates in DFIR-IRIS to incident-management actions.
+
+The workflow receives a status update through a webhook and evaluates the analyst's decision.
+
+### Workflow Logic
 
 ```text
-   Analyst Updates Alert
-     Status in DFIR-IRIS
-              |
-              v
-       Shuffle Webhook
-              |
-              v
-        Status Decision
-          /        \
-         /          \
- In Progress       Closed
-      |                |
-      v                v
- Create IRIS       Add Comment
-     Case          to the Alert
+     Analyst Updates Alert
+      Status in DFIR-IRIS
+               |
+               v
+        Shuffle Webhook
+               |
+               v
+         Status Decision
+           /        \
+          /          \
+  In Progress       Closed
+       |                |
+       v                v
+  Create IRIS       Add Comment
+      Case          to the Alert
 ```
 
-### 🔄 Processing Steps
+### Analyst Decision: In Progress
 
-**When the status is `In Progress`:**
+When the analyst changes an alert's status to `In Progress`, Shuffle calls the DFIR-IRIS API to escalate the alert and create an incident case.
 
-- Shuffle processes the status update.
-- The workflow calls the DFIR-IRIS API to escalate the alert.
-- A corresponding incident case is created.
+### Analyst Decision: Closed
 
-**When the status is `Closed`:**
+When the alert is marked `Closed`, Shuffle adds a comment to the alert instead of creating an escalation case.
 
-- Shuffle adds a comment to the alert.
-- The workflow records the closure-related action without creating an escalation case.
+### Shuffle — Human-in-the-Loop Workflow
 
-### 📸 Implementation Evidence
+![Human-in-the-Loop Approval workflow in Shuffle](screenshots/Screenshot%20From%202026-10-17%2020-29-52.png)
 
-**Shuffle — Status-Based Escalation Workflow**
+### DFIR-IRIS — Incident Case
 
-<!-- Add your second Shuffle workflow screenshot here -->
+The following screenshot shows the resulting investigation case, including its severity and incident summary.
 
-![Escalation Workflow](screenshots/escalation-workflow.png)
+![DFIR-IRIS SSH brute-force investigation case](screenshots/Screenshot%20From%202026-10-17%2020-41-56.png)
 
-**DFIR-IRIS — Incident Case**
+### DFIR-IRIS — Investigation Details
 
-<!-- Add the resulting IRIS case screenshot here -->
+The investigation details show the successful SSH login following repeated authentication failures, associated with Wazuh rule `100102` and MITRE ATT&CK technique `T1078`.
 
-![DFIR-IRIS Case](screenshots/iris-case.png)
+The evidence helps the analyst investigate the event and evaluate appropriate containment actions.
+
+![DFIR-IRIS investigation details for rule 100102](screenshots/Screenshot%20From%202026-10-17%2020-42-17.png)
 
 ---
 
-# 🤖 Local AI-Assisted Analysis
+# 🤖 5. Local AI-Assisted Alert Analysis
 
 The project uses **Ollama with Qwen3:4B** to analyze security alert evidence locally.
 
 The analysis prompt is designed to:
 
-- Summarize the security event in two concise sentences.
-- Explain the significance of the event or identify what remains unknown.
-- Use only the information available in the supplied evidence.
+- Summarize the event in two concise sentences.
+- Explain why the event matters or what remains unknown.
+- Use only the evidence supplied to the model.
 - Avoid inventing details or claiming an account is compromised without sufficient evidence.
-- Keep AI-generated analysis separate from automated response decisions.
+- Keep analysis separate from decisions to execute security responses.
 
-The model supports the SOC analyst by making alert information easier to review. It does not replace investigation or human judgment.
+The model supports the analyst by making alert information easier to review. It does not replace investigation or human judgment.
 
 ---
 
-# 🔐 Human-in-the-Loop Incident Response
+# 🔐 6. Human-Approved Response — Next Development Stage
 
-An additional development objective is to extend the existing incident-management workflow with analyst-approved containment actions.
+The current workflows support detection, AI-assisted analysis, notification, and incident escalation.
 
-Potential response actions include:
+The next development objective is to integrate analyst-approved containment actions into the existing workflow.
+
+Planned actions include:
 
 - Blocking a suspicious source IP.
 - Disabling a confirmed compromised local account.
-- Requiring explicit authorization before executing a response.
+- Requiring explicit analyst authorization before executing a response.
 - Recording response actions for investigation and auditing.
 
-**Status:** Human-approved containment is under development. These actions are not represented as operational capabilities of the current workflows.
+**Status:** Human-approved containment is still under development. These actions are not presented as fully implemented capabilities.
 
-The intended approach is to keep the analyst in control of security-sensitive actions rather than automatically responding to every detection.
+The intended approach is to require an explicit analyst decision before a containment action is executed.
 
 ---
 
@@ -203,14 +237,14 @@ The intended approach is to keep the analyst in control of security-sensitive ac
 |---|---|
 | Wazuh | Security monitoring and detection |
 | Ollama | Local AI model execution |
-| Qwen3:4B | AI-assisted alert analysis |
-| Shuffle SOAR | Workflow automation and orchestration |
+| Qwen3:4B | AI-assisted security alert analysis |
+| Shuffle SOAR | Security workflow orchestration |
 | DFIR-IRIS | Alert management and incident case handling |
 | REST APIs | Communication between security components |
 | Webhooks | Event-driven workflow execution |
 | Python | Workflow data processing |
-| JSON | Rules, prompts, and workflow configuration |
-| Linux | Lab environment |
+| JSON | Detection rules, AI prompts, and workflow configuration |
+| Linux | Security lab environment |
 
 ---
 
@@ -231,7 +265,7 @@ ai-soc-automation/
 │   └── rules/
 │       └── local_rules.xml
 ├── screenshots/
-│   └── ...
+│   └── ... screenshots used in this README
 ├── .gitignore
 └── README.md
 ```
@@ -240,14 +274,15 @@ ai-soc-automation/
 
 # 🎯 Skills Demonstrated
 
-- SIEM alert detection and rule configuration
-- SSH brute-force detection and authentication-event analysis
-- AI integration for security alert analysis
+- SIEM monitoring and custom detection rule configuration
+- SSH brute-force detection and authentication-event correlation
+- MITRE ATT&CK mapping
 - Local LLM deployment using Ollama
+- AI-assisted alert analysis
 - SOAR workflow development
 - REST API and webhook integration
-- Automated alert creation and email notifications
-- Incident triage and case escalation
+- Automated alert creation and email notification
+- Incident triage and escalation
 - Human-in-the-loop security automation
 - Security workflow design and documentation
 
@@ -255,10 +290,11 @@ ai-soc-automation/
 
 # 🔒 Security Considerations
 
-- AI-generated summaries are treated as supporting information, not authoritative security decisions.
-- Response actions should require explicit analyst authorization.
-- API credentials, passwords, session cookies, and private keys must never be committed to the repository.
-- Screenshots should be reviewed before publication to remove sensitive infrastructure details.
+- AI-generated summaries are supporting information, not authoritative security decisions.
+- Suspicious activity does not automatically prove account compromise.
+- Containment actions should require explicit analyst authorization.
+- Credentials, API tokens, passwords, and session cookies must not be committed to the repository.
+- Screenshots should be checked for sensitive information before publication.
 - Testing should be performed in an authorized lab environment.
 
 ---
@@ -270,8 +306,8 @@ ai-soc-automation/
 Cybersecurity Engineering Student  
 Interests: SOC Operations · Security Automation · AI-Assisted Threat Analysis
 
-- GitHub: [@Yassine1Nemri](https://github.com/Yassine1Nemri)
-- Project: [AI-Driven SOC Automation](https://github.com/Yassine1Nemri/ai-soc-automation)
+- **GitHub:** [@Yassine1Nemri](https://github.com/Yassine1Nemri)
+- **Project:** [AI-Driven SOC Automation](https://github.com/Yassine1Nemri/ai-soc-automation)
 
 ---
 
